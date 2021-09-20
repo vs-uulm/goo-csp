@@ -1,0 +1,17 @@
+netzob~=1.0.2
+pyitlib~=0.2.2
+pcapy~=0.10.10
+scapy~=2.4.3
+numpy~=1.18.4
+tabulate~=0.8.2
+hdbscan~=0.8.23
+sklearn~=0.0
+scikit-learn~=0.21.3
+scipy~=1.3.1
+networkx~=2.2
+pandas~=0.25.1
+bitstring~=3.1.7
+kneed~=0.7.0
+ipython~=5.8.0
+matplotlib~=3.2.2
+colorhash~=1.0.2
