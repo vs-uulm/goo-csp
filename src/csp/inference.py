@@ -100,7 +100,7 @@ class CSP(object):
         (see paper, Algorithm 3)
         """
         logger = logging.getLogger(__name__)
-        logger.setLevel(logging.INFO)
+        # logger.setLevel(logging.DEBUG)
         # logger.debug("log level DEBUG")
 
         # needs to hold for each field:
@@ -193,7 +193,7 @@ class CSP(object):
 
     def fieldDefinitions2segments(self, fieldDefinitions: List[Field]):
         logger = logging.getLogger(__name__)
-        logger.setLevel(logging.DEBUG)
+        # logger.setLevel(logging.DEBUG)
 
         offSets = defaultdict(set)
         fieldLookup = dict()
