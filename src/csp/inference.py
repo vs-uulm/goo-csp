@@ -1,37 +1,48 @@
-
-
 from typing import List, Sequence, Tuple, Dict, Iterable, ItemsView, Union
-import random, logging
+import logging
 from itertools import groupby, product, chain, combinations
 from collections import Counter, defaultdict
-from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
 import numpy
-from scipy.stats import pearsonr
-from pyitlib import discrete_random_variable as drv
 from netzob.Model.Vocabulary.Messages.AbstractMessage import AbstractMessage
-from netzob.Model.Vocabulary.Messages.L2NetworkMessage import L2NetworkMessage
-from netzob.Model.Vocabulary.Messages.L4NetworkMessage import L4NetworkMessage
 
 from nemere.inference.analyzers import Value
-from nemere.inference.segments import TypedSegment
+from nemere.inference.segments import MessageSegment, TypedSegment
 from nemere.inference.trackingBIDE import BIDEracker, MessageBIDE, HashableByteSequence
-from tabulate import tabulate
 
+@dataclass
+class Field:
+    ftype: str
+    values: Dict[bytes, Tuple[int, Dict[HashableByteSequence, List[int]]]]
+
+    def __init__(self, ftype: str, values: Dict[bytes, Tuple[int, Dict[HashableByteSequence, List[int]]]]):
+        super().__init__()
+        self.ftype = ftype
+        self.values = values
+
+class HashableTruncatedByteSequence(HashableByteSequence):
+    def __init__(self, sequence:bytes, ohash:int=None, offset:int=0):
+        super().__init__(sequence, ohash)
+        self._offset = offset
+
+    @property
+    def offset(self):
+        return self._offset
 
 class CSP(object):
-    MIN_SUPPORT = .3
+    MIN_SUPPORT = .6
 
     def __init__(self, messages: Sequence[AbstractMessage]):
         self.messages = messages
+        self.sequences = [HashableByteSequence(msg.data, hash(msg)) for msg in messages]
 
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     def byGoo(self):
         """original CSP algorithm for reference (see paper, Algorithm 1)"""
         L =  defaultdict(lambda: defaultdict(list))  # type: Dict[int, Dict[bytes, List[Tuple[HashableByteSequence,int]]]]
-        sequences = [HashableByteSequence(msg.data, hash(msg)) for msg in self.messages]
         # extract all single bytes as starting set
-        for sequence in sequences:
+        for sequence in self.sequences:
             for offset, intValue in enumerate(sequence.sequence):
                 byteValue = bytes([intValue])
                 L[1][byteValue].append((sequence,offset))
@@ -65,8 +76,11 @@ class CSP(object):
         raise NotImplementedError()
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-    def byBIDEracker(self) -> Dict[bytes, Tuple[int, Dict[HashableByteSequence, List[int]]]]:
+    def byBIDEracker(self, sequences: List[HashableByteSequence] = None) \
+            -> Dict[bytes, Tuple[int, Dict[HashableByteSequence, List[int]]]]:
         """
+        first CSP: static fields - SF(v)
+
         More efficient BIDE-based alternative to the original CSP (see #byGoo()).
 
         We do not count subsequences per flow (see Equations 3-5 in paper;
@@ -74,22 +88,58 @@ class CSP(object):
         """
         MessageBIDE.MIN_SUPPORT = type(self).MIN_SUPPORT
         # we use self.messages as FlowSequenceSet and as identical MessageSequenceSet
-        bide = MessageBIDE(self.messages)
+        if sequences is None:
+            sequences = self.sequences
+        bide = BIDEracker(sequences)
         # BIDE returns all locally frequent values also, which we are not interested in here.
-        return {k: v for k, v in bide.mostFrequent().items() if v[0] > len(self.messages) * type(self).MIN_SUPPORT}
+        return {k: v for k, v in bide.mostFrequent().items() if v[0] > len(sequences) * type(self).MIN_SUPPORT}
 
     def recursiveCSPbyBIDEracker(self):
-        """(see paper, Algorithm 3)"""
-        fieldDefinitions = list()  # needs to hold for each field:
-                                   #    type, values (multiple ones for non-SF(v)), <-- for additional fields (Algo. 4)
-                                   #    occurrences (seq/msg, offset) per value     <-- to generate segments afterwards
+        """
+        recursive CSP for message format inference
+        (see paper, Algorithm 3)
+        """
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.INFO)
+        # logger.debug("log level DEBUG")
+
+        # needs to hold for each field:
+        #    type, values (multiple ones for non-SF(v)), <-- for additional fields (Algo. 4)
+        #    occurrences (seq/msg, offset) per value     <-- to generate segments afterwards
+        fieldDefinitions = list()  # type: List[Field]
         # we use self.messages as MessageSequenceSet in byBIDEracker() and for recursion afterwards
         cspLevel1 = self.byBIDEracker()
         # (byteValue, occurrences) are the FieldF_i from the paper
         for byteValue, occurrences in cspLevel1.items():
+            logger.debug(f"check frequent byteValue {byteValue.hex()}")
+            fieldDefinitions.append(Field("SF(v)", {byteValue: occurrences}))
             posVar = type(self).posVar(occurrences)
-
-        # self.messages
+            support = type(self).support(occurrences)
+            minOffset = type(self).minOffset(occurrences)
+            maxDepth = type(self).maxDepth(occurrences, len(byteValue))
+            logger.debug(f"posVar {posVar:.1f} | support {support} | minOffset {minOffset} | maxDepth {minOffset}")
+            if posVar <= 200 and support != 1 and maxDepth - minOffset <= 40:
+                messageSequences = self.sequences
+                occSeq = occurrences[1].keys()
+                while True:
+                    # remove the messages that contain occurrences of byteValue
+                    messageSequences = type(self).removeSequences(messageSequences, occSeq)
+                    messageSequences = type(self).truncateSequences(messageSequences, minOffset, maxDepth)
+                    logger.debug(f"recurse CSP for {len(messageSequences)} sequences remaining")
+                    cspLevelN = self.byBIDEracker(messageSequences)
+                    if not cspLevelN:
+                        break
+                    maxSupport = max([occ[0] for bv, occ in cspLevelN.items()])
+                    newValueOcc = [bvocc for bvocc in cspLevelN.items() if bvocc[1][0] == maxSupport][0]
+                    if newValueOcc[0] in fieldDefinitions[-1].values:
+                        fieldDefinitions[-1].values[newValueOcc[0]][1].update(newValueOcc[1][1])
+                        fieldDefinitions[-1].values[newValueOcc[0]][0] += newValueOcc[1][0]
+                        logger.info(f"collision: duplicate value {newValueOcc[0].hex()}")
+                    fieldDefinitions[-1].values[newValueOcc[0]] = newValueOcc[1]
+                    occSeq = newValueOcc[1][1].keys()
+                    logger.debug(f"added occurrences for {newValueOcc[0].hex()}")
+                fieldDefinitions[-1].ftype = "DF(v)"
+        return fieldDefinitions
 
     @staticmethod
     def posVar(occurrences: Tuple[int, Dict[HashableByteSequence, List[int]]]):
@@ -121,13 +171,18 @@ class CSP(object):
 
         :return: A copy of the list of sequences in byteSeq without those contained in the given occurrences.
         """
-        return [seq for seq in byteSeq if byteSeq not in filterList]
+        return [seq for seq in byteSeq if seq not in filterList]
 
     @staticmethod
-    def truncateSequences(byteSeq: Iterable[HashableByteSequence], minOffset: int, maxDepth: int):
+    def truncateSequences(byteSeq: Iterable[HashableByteSequence], offset: int, depth: int):
         """:return: A copy of the list of sequences in byteSeq without those contained in the given occurrences."""
         return [
-            HashableByteSequence( seq.sequence[minOffset:maxDepth], hash((hash(seq),minOffset,maxDepth)) )
+            HashableTruncatedByteSequence(
+                seq.sequence[offset:depth],
+                # hash((hash(seq),offset,depth)),
+                hash(seq),
+                offset + seq.offset if isinstance(seq, HashableTruncatedByteSequence) else offset
+            )
             for seq in byteSeq]
 
     @staticmethod
@@ -135,3 +190,41 @@ class CSP(object):
         for msg, offsets in occurrences[1].items():
             for o in offsets:
                 yield msg, o
+
+    def fieldDefinitions2segments(self, fieldDefinitions: List[Field]):
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.DEBUG)
+
+        offSets = defaultdict(set)
+        fieldLookup = dict()
+        for field in fieldDefinitions:
+            # values: Dict[bytes, Tuple[int, Dict[HashableByteSequence, List[int]]]]
+            for bv, occurences in field.values.items():
+                length = len(bv)
+                for msg, offset in type(self).iterateOccurrences(occurences):
+                    offSets[msg].add(offset)
+                    offSets[msg].add(offset+length)
+                    if (msg, offset) in fieldLookup:
+                        logger.debug(f"Field definition of offset {offset} in message {msg} collides:\n"
+                                     f"  {fieldLookup[(msg, offset)].ftype} vs. {field.ftype}")
+                    fieldLookup[(msg, offset)] = field
+        offLists = {msg: sorted(os) for msg, os in offSets.items()}
+
+        # make segments from offset lists
+        segList = list()
+        for msg in self.messages:
+            boundaryList = offLists[msg]
+            # add start and end of message if not already contained in offsets
+            if boundaryList[0] != 0:
+                boundaryList = [0] + boundaryList
+            if boundaryList[-1] != len(msg.data):
+                boundaryList += [len(msg.data)]
+
+            analyzer = Value(msg)
+            segList.append([
+                # type mix should be okay due to our hack of __eq__ and __hash__ in HashableByteSequence
+                TypedSegment(analyzer, start, end-start,
+                             fieldLookup[(msg, start)] if (msg, start) in fieldLookup else None)
+                for start, end in zip(boundaryList[:-1], boundaryList[1:])
+            ])
+        return segList
