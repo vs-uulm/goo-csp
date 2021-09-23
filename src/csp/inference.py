@@ -220,11 +220,12 @@ class CSP(object):
             if boundaryList[-1] != len(msg.data):
                 boundaryList += [len(msg.data)]
 
+            from nemere.utils.evaluationHelpers import unknown
             analyzer = Value(msg)
             segList.append([
                 # type mix should be okay due to our hack of __eq__ and __hash__ in HashableByteSequence
                 TypedSegment(analyzer, start, end-start,
-                             fieldLookup[(msg, start)].ftype if (msg, start) in fieldLookup else None)
+                             fieldLookup[(msg, start)].ftype if (msg, start) in fieldLookup else unknown)
                 for start, end in zip(boundaryList[:-1], boundaryList[1:])
             ])
         return segList

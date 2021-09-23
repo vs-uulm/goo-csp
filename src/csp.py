@@ -11,6 +11,7 @@ import logging
 from typing import List
 from argparse import ArgumentParser
 from time import time
+from itertools import chain
 
 # noinspection PyUnresolvedReferences
 from tabulate import tabulate
@@ -27,13 +28,19 @@ logger = logging.getLogger()
 # logger.debug("log level DEBUG")
 
 from nemere.utils.loader import SpecimenLoader
-from nemere.utils.evaluationHelpers import StartupFilecheck
-from nemere.utils.reportWriter import writeReport
+from nemere.utils.evaluationHelpers import StartupFilecheck, TitleBuilder
+from nemere.utils.reportWriter import writeReport, SegmentClusterGroundtruthReport, CombinatorialClustersReport, \
+    IndividualClusterReport, writeFieldTypesTikz, writeSemanticTypeHypotheses
 from nemere.inference.segmentHandler import symbolsFromSegments
+from nemere.inference.templates import DBSCANadjepsClusterer, MemmapDC, DelegatingDC
+from nemere.validation.clusterInspector import SegmentClusterCauldron
 from nemere.validation.dissectorMatcher import MessageComparator, DissectorMatcher
 from nemere.validation.netzobFormatMatchScore import MessageScoreStatistics
+from nemere.visualization.distancesPlotter import SegmentTopology
 
 from csp.inference import CSP
+
+analysisTitle = "csp-messageformat"
 
 if __name__ == '__main__':
     parser = ArgumentParser(
@@ -46,10 +53,15 @@ if __name__ == '__main__':
                              '(typically the payload of a transport protocol).')
     parser.add_argument('-r', '--relativeToIP', action='store_false')
     parser.add_argument('-s', '--iterate-min-support', action='store_true')
+    parser.add_argument('-f', '--field-type-recognition', action='store_true')
+    parser.add_argument('-p', '--with-plots',
+                        help='Generate plots of true field types and their distances.',
+                        action="store_true")
     args = parser.parse_args()
+
     layer = args.layer
     relativeToIP = args.relativeToIP
-
+    withplots = args.with_plots
     filechecker = StartupFilecheck(args.pcapfilename)
 
     specimens = SpecimenLoader(args.pcapfilename, layer = layer, relativeToIP = relativeToIP)
@@ -63,6 +75,9 @@ if __name__ == '__main__':
     else:
         minSupportList = [.6]
     formatmatchmetrics = dict()
+    segmentedMessages = []  # prevent PyCharm warning
+    comparator = MessageComparator(specimens, layer=layer, relativeToIP=relativeToIP)
+    print("Dissection complete.")
     for minSupport in minSupportList:
         CSP.MIN_SUPPORT = minSupport
         print(f"Perform CSP with min support {CSP.MIN_SUPPORT}")
@@ -75,10 +90,8 @@ if __name__ == '__main__':
 
         inferenceDuration = time() - inferenceStart
         print("Contiguous Sequential Pattern inference complete.")
-        # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-        comparator = MessageComparator(specimens, layer=layer, relativeToIP=relativeToIP)
-        print("Dissection complete.")
+        # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
         symbols = symbolsFromSegments(segmentedMessages)
         # comparator.pprintInterleaved(symbols)
         # calc FMS per message
@@ -87,13 +100,58 @@ if __name__ == '__main__':
         formatmatchmetrics.update({(CSP.MIN_SUPPORT, msg): fms for msg, fms in message2quality.items()})
         # write statistics to csv
         writeReport(message2quality, inferenceDuration, comparator,
-                    f"csp-messageformat_{CSP.MIN_SUPPORT}", filechecker.reportFullPath, True)
+                    f"{analysisTitle}_{CSP.MIN_SUPPORT}", filechecker.reportFullPath, True)
     MessageScoreStatistics.printMinMax(formatmatchmetrics)
+    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
+    if args.field_type_recognition:
+        # perform FTR
+        chainedSegments = list(chain.from_iterable(segmentedMessages))
+        if len(chainedSegments) ** 2 > MemmapDC.maxMemMatrix:
+            dc = MemmapDC(chainedSegments)
+        else:
+            dc = DelegatingDC(chainedSegments)
+        clusterer = DBSCANadjepsClusterer(dc, chainedSegments, S=24.0)
+        cauldron = SegmentClusterCauldron(clusterer, analysisTitle)
+        cauldron.clustersOfUniqueSegments()
+        fTypeTemplates = cauldron.exportAsTemplates()
+        inferenceParams = TitleBuilder(analysisTitle, None, None, clusterer)
 
-    # TODO perform FTR
+        ftclusters = {ftc.fieldtype: ftc.baseSegments for ftc in fTypeTemplates}
+        """ftclusters is a mixed list of MessageSegment and Template"""
+        ftclusters["Noise"] = cauldron.noise
 
+        # # # # # # # # # # # # # # # # # # # # # # # #
+        # Report: write cluster elements to csv
+        elementsReport = SegmentClusterGroundtruthReport(comparator, dc.segments, filechecker)
+        elementsReport.write(ftclusters)
+        # # # # # # # # # # # # # # # # # # # # # # # #
 
+        # # # # # # # # # # # # # # # # # # # # # # # #
+        # # Report: allover clustering quality statistics
+        report = CombinatorialClustersReport(elementsReport.groundtruth, filechecker)
+        report.write(ftclusters, inferenceParams.plotTitle)
+
+        # field-type-wise cluster quality statistics
+        report = IndividualClusterReport(elementsReport.groundtruth, filechecker)
+        # add column $d_max$ to report
+        cluDists = {lab: clusterer.distanceCalculator.distancesSubset(clu) for lab, clu in ftclusters.items()}
+        cluDistsMax = {lab: clu.max() for lab, clu in cluDists.items()}
+        report.addColumn(cluDistsMax, "$d_max$")
+        report.write(ftclusters, inferenceParams.plotTitle)
+        clusterStats = report.precisionRecallList
+        # # # # # # # # # # # # # # # # # # # # # # # #
+
+        if withplots:
+            # distance Topology plot
+            topoplot = SegmentTopology(clusterStats, fTypeTemplates, cauldron.noise, dc)
+            topoplot.writeFigure(specimens, inferenceParams, elementsReport, filechecker)
+        writeFieldTypesTikz(comparator, segmentedMessages, fTypeTemplates, filechecker)
+        filechecker.writeReportMetadata(None)
+        # # # # # # # # # # # # # # # # # # # # # # # #
+        writeSemanticTypeHypotheses(cauldron, filechecker)
+
+    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     # interactive
     if args.interactive:
         IPython.embed()
