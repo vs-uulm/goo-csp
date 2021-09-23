@@ -196,7 +196,7 @@ class CSP(object):
         # logger.setLevel(logging.DEBUG)
 
         offSets = defaultdict(set)
-        fieldLookup = dict()
+        fieldLookup = dict()  # type: Dict[Tuple, Field]
         for field in fieldDefinitions:
             # values: Dict[bytes, Tuple[int, Dict[HashableByteSequence, List[int]]]]
             for bv, occurences in field.values.items():
@@ -213,9 +213,9 @@ class CSP(object):
         # make segments from offset lists
         segList = list()
         for msg in self.messages:
-            boundaryList = offLists[msg]
+            boundaryList = offLists[msg] if msg in offLists else []
             # add start and end of message if not already contained in offsets
-            if boundaryList[0] != 0:
+            if len(boundaryList) == 0 or boundaryList[0] != 0:
                 boundaryList = [0] + boundaryList
             if boundaryList[-1] != len(msg.data):
                 boundaryList += [len(msg.data)]
@@ -224,7 +224,7 @@ class CSP(object):
             segList.append([
                 # type mix should be okay due to our hack of __eq__ and __hash__ in HashableByteSequence
                 TypedSegment(analyzer, start, end-start,
-                             fieldLookup[(msg, start)] if (msg, start) in fieldLookup else None)
+                             fieldLookup[(msg, start)].ftype if (msg, start) in fieldLookup else None)
                 for start, end in zip(boundaryList[:-1], boundaryList[1:])
             ])
         return segList
