@@ -3,12 +3,11 @@ import logging
 from itertools import groupby, product, chain, combinations
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-
 import numpy
 from netzob.Model.Vocabulary.Messages.AbstractMessage import AbstractMessage
 
 from nemere.inference.analyzers import Value
-from nemere.inference.segments import MessageSegment, TypedSegment
+from nemere.inference.segments import MessageSegment
 from nemere.inference.trackingBIDE import BIDEracker, MessageBIDE, HashableByteSequence
 
 @dataclass
@@ -224,8 +223,9 @@ class CSP(object):
             analyzer = Value(msg)
             segList.append([
                 # type mix should be okay due to our hack of __eq__ and __hash__ in HashableByteSequence
-                TypedSegment(analyzer, start, end-start,
-                             fieldLookup[(msg, start)].ftype if (msg, start) in fieldLookup else unknown)
+                MessageSegment(analyzer, start, end - start)
+                # TypedSegment(analyzer, start, end-start,
+                #              fieldLookup[(msg, start)].ftype if (msg, start) in fieldLookup else unknown)
                 for start, end in zip(boundaryList[:-1], boundaryList[1:])
             ])
         return segList

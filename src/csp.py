@@ -1,6 +1,7 @@
 """
 Implements the Contiguous Sequential Pattern (CSP) algorithm,
-only up to the 2nd level CSP, i.e., for reverse engineering "field format" and "message format".
+only up to the 2nd level CSP, i.e., for reverse engineering "field format" and "message format"
+and uses the resulting segments for field classification and recognition.
 """
 
 # Development workaround due to laziness
@@ -69,7 +70,7 @@ if __name__ == '__main__':
     messages = list(specimens.messagePool.keys())  # type: List[L4NetworkMessage]
 
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-    # TODO iterate values for min_support and calculate the FMS for each to find an optimum.
+    # iterate values for min_support and calculate the FMS for each to find an optimum.
     if args.iterate_min_support:
         minSupportList = (a/10 for a in range(3,10))
     else:
