@@ -54,6 +54,8 @@ optThresh = {
     "nbns_SMIA20111010-one_maxdiff-"        : 53,
     "ntp_SMIA-20111010_maxdiff-"            : 66,
     "smb_SMIA20111010-one-rigid1_maxdiff-"  : 53,
+	"awdl-filtered"                         : 57,
+    "au-wifi-filtered"                      : 51,
 }
 
 analysisTitle = "netzob-segments"
@@ -70,7 +72,7 @@ def getNetzobInference(l5msgs: List[AbstractMessage], minEquivalence=70):
     """
     import time #, gc
 
-    print("Start netzob inference...")
+    print(f"Start netzob inference with minEquivalence {minEquivalence}...")
     starttime = time.time()
     symbollist = netzob.Format.clusterByAlignment(l5msgs, minEquivalence=minEquivalence, internalSlick=True)
     runtime = time.time() - starttime
