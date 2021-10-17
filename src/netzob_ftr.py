@@ -127,7 +127,7 @@ if __name__ == '__main__':
     message2quality = DissectorMatcher.symbolListFMS(comparator, symbols)
     formatmatchmetrics = {(mThresh, msg): fms for msg, fms in message2quality.items()}
     print('Calculated in {:.3f}s'.format(time() - swstart))
-    mmm = getMinMeanMaxFMS([round(q.score, 3) for q in formatmatchmetrics.values()])
+    mmm = getMinMeanMaxFMS([round(q.score, 3) for q in formatmatchmetrics.values() if q.score is not None])
     print('Prepared in {:.3f}s'.format(time() - swstart))
     print('Writing report...')
     swstart = time()

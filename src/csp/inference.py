@@ -7,7 +7,7 @@ import numpy
 from netzob.Model.Vocabulary.Messages.AbstractMessage import AbstractMessage
 
 from nemere.inference.analyzers import Value
-from nemere.inference.segments import MessageSegment
+from nemere.inference.segments import MessageSegment, MessageAnalyzer
 from nemere.inference.trackingBIDE import BIDEracker, MessageBIDE, HashableByteSequence
 
 @dataclass
@@ -219,8 +219,7 @@ class CSP(object):
             if boundaryList[-1] != len(msg.data):
                 boundaryList += [len(msg.data)]
 
-            from nemere.utils.evaluationHelpers import unknown
-            analyzer = Value(msg)
+            analyzer = MessageAnalyzer.findExistingAnalysis(Value, MessageAnalyzer.U_BYTE, msg)
             segList.append([
                 # type mix should be okay due to our hack of __eq__ and __hash__ in HashableByteSequence
                 MessageSegment(analyzer, start, end - start)
