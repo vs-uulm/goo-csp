@@ -31,7 +31,7 @@ logger = logging.getLogger()
 from nemere.utils.loader import SpecimenLoader
 from nemere.utils.evaluationHelpers import StartupFilecheck, TitleBuilder
 from nemere.utils.reportWriter import writeReport, SegmentClusterGroundtruthReport, CombinatorialClustersReport, \
-    IndividualClusterReport, writeFieldTypesTikz, writeSemanticTypeHypotheses
+    IndividualClusterReport, writeFieldTypesTikz
 from nemere.inference.segmentHandler import symbolsFromSegments
 from nemere.inference.templates import DBSCANadjepsClusterer, MemmapDC, DelegatingDC
 from nemere.validation.clusterInspector import SegmentClusterCauldron
@@ -150,7 +150,7 @@ if __name__ == '__main__':
         writeFieldTypesTikz(comparator, segmentedMessages, fTypeTemplates, filechecker)
         filechecker.writeReportMetadata(None)
         # # # # # # # # # # # # # # # # # # # # # # # #
-        writeSemanticTypeHypotheses(cauldron, filechecker)
+        # writeSemanticTypeHypotheses(cauldron, filechecker)
 
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     # interactive

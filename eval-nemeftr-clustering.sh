@@ -6,13 +6,12 @@
 #input="input/maxdiff-fromOrig/ntp_SMIA-20111010_deduped-9995-10000_maxdiff-1100.pcap"
 #input="input/maxdiff-fromOrig/smb_SMIA20111010-one-rigid1_maxdiff-100*.pcap"
 #input="input/maxdiff-fromOrig/dhcp_SMIA2011101X-filtered_maxdiff-1000.pcap"
-#input="input/wlan-beacons-priv_maxdiff-100*.pcapng"
-
-#input="input/awdl-filtered_maxdiff-100.pcap input/awdl-filtered_maxdiff-250.pcap input/awdl-filtered_maxdiff-350.pcap input/awdl-filtered_maxdiff-500.pcap input/awdl-filtered.pcap"
-input="input/ari_syslog_corpus_maxdiff-99.pcapng input/ari_syslog_corpus_maxdiff-999.pcapng"
+input="input/maxdiff-fromOrig/ntp_SMIA-20111010_maxdiff-100.pcap"
 
 
-segmenters="csp.py netzob_ftr.py"
+#segmenters="csp.py netzob_ftr.py"
+segmenters="csp.py"
+
 L2PROTOS="input/awdl-* input/au-* input/wlan-beacons-*"
 L1PROTOS="input/ari_*"
 prefix="cft"
